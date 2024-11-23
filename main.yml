@@ -1,0 +1,96 @@
+---
+- name: Test remote playbook execution
+  hosts: localhost
+  vars:
+    debug: false
+    playbook_tags: default("")
+  tasks:
+    # Check 
+  - name: Fail when env is not defined
+    ansible.builtin.fail:
+      msg: "Need to set variable env to production/staging/test/utvikling"
+    when: env is undefined
+
+    # Set -l option if tags is used
+  - name: Set -l option if tags is specified
+    ansible.builtin.set_fact:
+      tag_opt: "{{ '-t' if playbook_tags != '' else '' }}"
+
+    # Playbook execution on remote host  
+  - name: Executing remote playbook, holy shit breaking barriers
+    ansible.builtin.command:
+      cmd: ansible-playbook main.yml -i inventory/{{ env | quote }}/hosts.yml {{ tag_opt | quote }} {{ playbook_tags | quote}}
+      chdir: /home/workspace/test
+    register: playbook_output
+    ignore_errors: true
+    no_log: true
+
+    # Extracting output
+  - name: Extract task results
+    ansible.builtin.set_fact: 
+      output_lines: "{{ playbook_output.stdout_lines }}"
+
+    # Collecting wanted lines from output
+  - name: Collect skipping no host matched
+    ansible.builtin.set_fact:
+      skipping_no_match: "{{ skipping_no_match | default([]) + [item] }}"
+    loop: "{{ output_lines }}"
+    when: "item is match('^skipping: no hosts matched')"
+    no_log: true
+
+  - name: Collect failed tasks
+    ansible.builtin.set_fact:
+      failed_tasks: "{{ failed_tasks | default([]) + [item] }}"
+    loop: "{{ output_lines }}"
+    when: item.startswith('fatal:')
+    no_log: true
+
+  - name: Collect ok tasks
+    ansible.builtin.set_fact:
+      ok_tasks: "{{ ok_tasks | default([]) + [item] }}"
+    loop: "{{ output_lines }}"
+    when: item.startswith('ok:')
+    no_log: true
+
+  - name: Collect changed tasks
+    ansible.builtin.set_fact:
+      changed_tasks: "{{ changed_tasks | default([]) + [item] }}"
+    loop: "{{ output_lines }}"
+    when: item.startswith('changed:')
+    no_log: true
+
+    # Displaying tasks
+  - name: Display ok tasks
+    ansible.builtin.debug:
+      msg: "{{ item }}"
+    loop: "{{ ok_tasks }}"
+    when: ok_tasks is defined and ok_tasks | length > 0
+
+  - name: Display changed tasks
+    ansible.builtin.debug:
+      msg: "{{ item }}"
+    loop: "{{ changed_tasks }}"
+    when: changed_tasks is defined and changed_tasks | length > 0
+    changed_when: changed_tasks is defined and changed_tasks | length > 0
+
+  - name: Display failed tasks
+    ansible.builtin.debug:
+      msg: "{{ item }}"
+    loop: "{{ failed_tasks }}"
+    when: failed_tasks is defined and failed_tasks | length > 0
+    failed_when: failed_tasks is defined and failed_tasks | length > 0
+    ignore_errors: "{{ debug or (skipping_no_match is defined and skipping_no_match | length > 0) }}"
+
+  - name: Display skipping no host matched
+    ansible.builtin.debug:
+      msg: "{{ item }}"
+    loop: "{{ skipping_no_match }}"
+    when: skipping_no_match is defined and skipping_no_match | length > 0
+    failed_when: skipping_no_match is defined and skipping_no_match | length > 0
+    ignore_errors: "{{ debug }}"
+
+    # Full output for debugging
+  - name: "Debug: Full output from playbook"
+    ansible.builtin.debug:
+      msg: "{{ output_lines }}"
+    when: debug is defined and debug
