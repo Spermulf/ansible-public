@@ -4,6 +4,7 @@
   vars:
     debug: false
     playbook_tags: default("")
+    playbook_limit: default("")
   tasks:
     # Check 
   - name: Fail when env is not defined
@@ -11,15 +12,20 @@
       msg: "Need to set variable env to production/staging/test/utvikling"
     when: env is undefined
 
-    # Set -l option if tags is used
-  - name: Set -l option if tags is specified
+    # Set -t option if tags is used
+  - name: Set -t option if tags is specified
     ansible.builtin.set_fact:
       tag_opt: "{{ '-t' if playbook_tags != '' else '' }}"
+
+    # Set -l option if limit is used
+  - name: Set -l option if limit is specified
+    ansible.builtin.set_fact:
+      limit_opt: "{{ '-l' if playbook_limit != '' else '' }}"
 
     # Playbook execution on remote host  
   - name: Executing remote playbook, holy shit breaking barriers
     ansible.builtin.command:
-      cmd: ansible-playbook main.yml -i inventory/{{ env | quote }}/hosts.yml {{ tag_opt | quote }} {{ playbook_tags | quote}}
+      cmd: ansible-playbook main.yml -i inventory/{{ env | quote }}/hosts.yml {{ tag_opt | quote }} {{ playbook_tags | quote}} {{ limit_opt | quote }} {{ playbook_limit | quote}}
       chdir: /home/workspace/test
     register: playbook_output
     ignore_errors: true
