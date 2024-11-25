@@ -3,8 +3,9 @@
   hosts: localhost
   vars:
     debug: false
-    playbook_tags: ""
-    playbook_limit: ""
+   # tags: "tag1,tag2,tag3"
+   # limit: "host1,host2,host3"
+   # env: production/staging/test/utvikling
   tasks:
     # Check 
   - name: Fail when env is not defined
@@ -15,17 +16,19 @@
     # Set -t option if tags is used
   - name: Set -t option if tags is specified
     ansible.builtin.set_fact:
-      tag_opt: "{{ '-t' if playbook_tags != '' else '' }}"
+      tag_opt: "{{ '-t' if tags is defined else '' }}"
+      tags: "{{ tags | default('') }}"
 
     # Set -l option if limit is used
   - name: Set -l option if limit is specified
     ansible.builtin.set_fact:
-      limit_opt: "{{ '-l' if playbook_limit != '' else '' }}"
+      limit_opt: "{{ '-l' if limit is defined else '' }}"
+      limit: "{{ limit | default('') }}"
 
     # Playbook execution on remote host  
   - name: Executing remote playbook, holy shit breaking barriers
     ansible.builtin.command:
-      cmd: ansible-playbook main.yml -i inventory/{{ env | quote }}/hosts.yml {{ tag_opt | quote }} {{ playbook_tags | quote}} {{ limit_opt | quote }} {{ playbook_limit | quote}}
+      cmd: ansible-playbook main.yml -i inventory/{{ env | quote }}/hosts.yml {{ tag_opt }} {{ tags }} {{ limit_opt }} {{ limit }}
       chdir: /home/workspace/test
     register: playbook_output
     ignore_errors: true
@@ -35,8 +38,27 @@
   - name: Extract task results
     ansible.builtin.set_fact: 
       output_lines: "{{ playbook_output.stdout_lines }}"
+      output_len: "{{ playbook_output.stdout_lines | length }}"
 
-    # Collecting wanted lines from output
+    # Collecting wanted lines from output      
+  - name: Collect task names
+    ansible.builtin.set_fact:
+      tasks: "{{ tasks | default([]) + [ {'idx': idx, 'out': item} ] }}"
+    loop: "{{ output_lines }}"
+    loop_control:
+      index_var: idx
+    when: item.startswith('TASK')
+    no_log: true
+    # ^^
+  - name: Collect recap
+    ansible.builtin.set_fact:
+      recap: "{{ recap | default([]) + [ {'idx': idx, 'len': (output_lines | length) - 1, 'out': item} ] }}"
+    loop: "{{ output_lines }}"
+    loop_control:
+      index_var: idx
+    when: item.startswith('PLAY RECAP')
+    no_log: true
+    # ^^
   - name: Collect skipping no host matched
     ansible.builtin.set_fact:
       skipping_no_match: "{{ skipping_no_match | default([]) + [item] }}"
@@ -46,46 +68,158 @@
     # ^^
   - name: Collect failed tasks
     ansible.builtin.set_fact:
-      failed_tasks: "{{ failed_tasks | default([]) + [item] }}"
+      failed_tasks: "{{ failed_tasks | default([]) + [ {'idx': idx, 'out': item, 'task_name': 'task_name'} ] }}"
     loop: "{{ output_lines }}"
+    loop_control:
+      index_var: idx
     when: item.startswith('fatal:')
     no_log: true
     # ^^
   - name: Collect ok tasks
     ansible.builtin.set_fact:
-      ok_tasks: "{{ ok_tasks | default([]) + [item] }}"
+      ok_tasks: "{{ ok_tasks | default([]) + [ {'idx': idx, 'out': item, 'task_name': 'task_name'} ] }}"
     loop: "{{ output_lines }}"
+    loop_control:
+      index_var: idx
     when: item.startswith('ok:')
     no_log: true
     # ^^
   - name: Collect changed tasks
     ansible.builtin.set_fact:
-      changed_tasks: "{{ changed_tasks | default([]) + [item] }}"
+      changed_tasks: "{{ changed_tasks | default([]) + [ {'idx': idx, 'out': item, 'task_name': 'task_name'} ] }}"
     loop: "{{ output_lines }}"
+    loop_control:
+      index_var: idx
     when: item.startswith('changed:')
     no_log: true
+
+    # Map correct task name to task outcome
+  - name: Check if failed tasks is defined
+    block:
+      - name: Tie task name with failed tasks
+        ansible.builtin.set_fact:
+          updated_failed_tasks: "{{ updated_failed_tasks | default([]) + [{'idx': item.1.idx, 'out': item.1.out, 'task_name': item.0.out}] }}"
+        with_nested:
+          - "{{ tasks | reverse }}"
+          - "{{ failed_tasks | reverse }}"
+        when: item.1.idx - item.0.idx > 0 and item.1.task_name == 'task_name'
+        no_log: true
+
+        # Group task output by task_name
+      - name: Group failed by task_name
+        ansible.builtin.set_fact:
+          grouped_failed_tasks: "{{ updated_failed_tasks | groupby('task_name') }}"
+        no_log: true
+
+      - name: Build final_failed_tasks
+        ansible.builtin.set_fact:
+          final_failed_tasks: >-
+            {{
+              (final_failed_tasks | default([])) + [{
+                "task_name": item.0,
+                "idx": item.1[0].idx,
+                "out": (item.1 | map(attribute='out') | list)
+              }]
+            }}
+        loop: "{{ grouped_failed_tasks }}"
+        no_log: true
+    when: tasks is defined and tasks | length > 0 and failed_tasks is defined and failed_tasks | length > 0
+    # ^^
+  - name: Check if changed tasks is defined
+    block:
+      - name: Tie task name with changed tasks
+        ansible.builtin.set_fact:
+          updated_changed_tasks: "{{ updated_changed_tasks | default([]) + [{'idx': item.1.idx, 'out': item.1.out, 'task_name': item.0.out}] }}"
+        with_nested:
+          - "{{ tasks | reverse }}"
+          - "{{ changed_tasks | reverse }}"
+        when: item.1.idx - item.0.idx > 0 and item.1.task_name == 'task_name'
+        no_log: true
+
+        # Group task output by task_name
+      - name: Group changed by task_name
+        ansible.builtin.set_fact:
+          grouped_changed_tasks: "{{ updated_changed_tasks | groupby('task_name') }}"
+        no_log: true
+
+      - name: Build final_changed_tasks
+        ansible.builtin.set_fact:
+          final_changed_tasks: >-
+            {{
+              (final_changed_tasks | default([])) + [{
+                "task_name": item.0,
+                "idx": item.1[0].idx,
+                "out": (item.1 | map(attribute='out') | list)
+              }]
+            }}
+        loop: "{{ grouped_changed_tasks }}"
+        no_log: true
+    when: tasks is defined and tasks | length > 0 and changed_tasks is defined and changed_tasks | length > 0
+    # ^^
+  - name: Check if ok tasks is defined
+    block:
+      - name: Tie task name with ok tasks
+        ansible.builtin.set_fact:
+          updated_ok_tasks: "{{ updated_ok_tasks | default([]) + [{'idx': item.1.idx, 'out': item.1.out, 'task_name': item.0.out}] }}"
+        with_nested:
+          - "{{ tasks | reverse }}"
+          - "{{ ok_tasks | reverse }}"
+        when: item.1.idx - item.0.idx > 0 and item.1.task_name == 'task_name'
+        no_log: true
+
+        # Group task output by task_name
+      - name: Group ok by task_name
+        ansible.builtin.set_fact:
+          grouped_ok_tasks: "{{ updated_ok_tasks | groupby('task_name') }}"
+        no_log: true
+
+      - name: Build final_ok_tasks
+        ansible.builtin.set_fact:
+          final_ok_tasks: >-
+            {{
+              (final_ok_tasks | default([])) + [{
+                "task_name": item.0,
+                "idx": item.1[0].idx,
+                "out": (item.1 | map(attribute='out') | list)
+              }]
+            }}
+        loop: "{{ grouped_ok_tasks }}"
+        no_log: true
+    when: tasks is defined and tasks | length > 0 and ok_tasks is defined and ok_tasks | length > 0
 
     # Displaying tasks
   - name: Display ok tasks
     ansible.builtin.debug:
-      msg: "{{ item }}"
-    loop: "{{ ok_tasks }}"
-    when: ok_tasks is defined and ok_tasks | length > 0
+      msg:
+        - "{{ item.task_name }}"
+        - "{{ item.out }}"
+    loop: "{{ final_ok_tasks | reverse}}"
+    loop_control:
+      label: "Output Line Count: {{ item.idx }}"
+    when: final_ok_tasks is defined and final_ok_tasks | length > 0
     # ^^
   - name: Display changed tasks
     ansible.builtin.debug:
-      msg: "{{ item }}"
-    loop: "{{ changed_tasks }}"
-    when: changed_tasks is defined and changed_tasks | length > 0
-    changed_when: changed_tasks is defined and changed_tasks | length > 0
+      msg:
+        - "{{ item.task_name }}"
+        - "{{ item.out }}"
+    loop: "{{ final_changed_tasks | reverse}}"
+    loop_control:
+      label: "Output Line Count: {{ item.idx }}"
+    when: final_changed_tasks is defined and final_changed_tasks | length > 0
+    changed_when: final_changed_tasks is defined and final_changed_tasks | length > 0
     # ^^
   - name: Display failed tasks
     ansible.builtin.debug:
-      msg: "{{ item }}"
-    loop: "{{ failed_tasks }}"
-    when: failed_tasks is defined and failed_tasks | length > 0
-    failed_when: failed_tasks is defined and failed_tasks | length > 0
-    ignore_errors: "{{ debug or (skipping_no_match is defined and skipping_no_match | length > 0) }}"
+      msg:
+        - "{{ item.task_name }}"
+        - "{{ item.out }}"
+    loop: "{{ final_failed_tasks | reverse}}"
+    loop_control:
+      label: "Output Line Count: {{ item.idx }}"
+    when: final_failed_tasks is defined and final_failed_tasks | length > 0
+    failed_when: final_failed_tasks is defined and final_failed_tasks | length > 0
+    ignore_errors: "{{ debug or (skipping_no_match is defined and skipping_no_match | length > 0) or recap is defined }}"
     # ^^
   - name: Display skipping no host matched
     ansible.builtin.debug:
@@ -93,7 +227,7 @@
     loop: "{{ skipping_no_match }}"
     when: skipping_no_match is defined and skipping_no_match | length > 0
     failed_when: skipping_no_match is defined and skipping_no_match | length > 0
-    ignore_errors: "{{ debug }}"
+    ignore_errors: "{{ debug or recap is defined }}"
 
     # Full output for debugging
   - name: "Debug: Full output from playbook"
