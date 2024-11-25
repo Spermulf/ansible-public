@@ -3,15 +3,18 @@
   hosts: localhost
   vars:
     debug: false
-    playbook_tags: default("")
-    playbook_limit: default("")
+    playbook_tags: ""
+    playbook_limit: ""
   tasks:
     # Check 
   - name: Fail when env is not defined
     ansible.builtin.fail:
       msg: "Need to set variable env to production/staging/test/utvikling"
     when: env is undefined
-
+  
+  - name: fg
+    debug:
+      msg: "{{ playbook_limit }}:{{ playbook_tags }}"
     # Set -t option if tags is used
   - name: Set -t option if tags is specified
     ansible.builtin.set_fact:
