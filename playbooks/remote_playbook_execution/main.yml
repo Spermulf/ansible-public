@@ -12,9 +12,6 @@
       msg: "Need to set variable env to production/staging/test/utvikling"
     when: env is undefined
   
-  - name: fg
-    debug:
-      msg: "{{ playbook_limit }}:{{ playbook_tags }}"
     # Set -t option if tags is used
   - name: Set -t option if tags is specified
     ansible.builtin.set_fact:
@@ -46,21 +43,21 @@
     loop: "{{ output_lines }}"
     when: "item is match('^skipping: no hosts matched')"
     no_log: true
-
+    # ^^
   - name: Collect failed tasks
     ansible.builtin.set_fact:
       failed_tasks: "{{ failed_tasks | default([]) + [item] }}"
     loop: "{{ output_lines }}"
     when: item.startswith('fatal:')
     no_log: true
-
+    # ^^
   - name: Collect ok tasks
     ansible.builtin.set_fact:
       ok_tasks: "{{ ok_tasks | default([]) + [item] }}"
     loop: "{{ output_lines }}"
     when: item.startswith('ok:')
     no_log: true
-
+    # ^^
   - name: Collect changed tasks
     ansible.builtin.set_fact:
       changed_tasks: "{{ changed_tasks | default([]) + [item] }}"
@@ -74,14 +71,14 @@
       msg: "{{ item }}"
     loop: "{{ ok_tasks }}"
     when: ok_tasks is defined and ok_tasks | length > 0
-
+    # ^^
   - name: Display changed tasks
     ansible.builtin.debug:
       msg: "{{ item }}"
     loop: "{{ changed_tasks }}"
     when: changed_tasks is defined and changed_tasks | length > 0
     changed_when: changed_tasks is defined and changed_tasks | length > 0
-
+    # ^^
   - name: Display failed tasks
     ansible.builtin.debug:
       msg: "{{ item }}"
@@ -89,7 +86,7 @@
     when: failed_tasks is defined and failed_tasks | length > 0
     failed_when: failed_tasks is defined and failed_tasks | length > 0
     ignore_errors: "{{ debug or (skipping_no_match is defined and skipping_no_match | length > 0) }}"
-
+    # ^^
   - name: Display skipping no host matched
     ansible.builtin.debug:
       msg: "{{ item }}"
