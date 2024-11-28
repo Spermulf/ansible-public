@@ -1,0 +1,49 @@
+{%- set tasks = namespace(list=[]) %}
+{%- set changed = namespace(list=[]) %}
+{%- set updated_changed = namespace(list=[]) %}
+{%- set ns = namespace(existing=false, has_change=false) %}
+{%- for line in lines %}
+    {%- if line.startswith('TASK') %}
+        {%- set _ = tasks.list.append({'out': line, 'idx': loop.index0}) %}
+    {%- endif %}
+    {%- if line.startswith('changed:') %}
+        {%- set _ = changed.list.append({'out': line, 'idx': loop.index0}) %}
+        {%- if lines[loop.index0 + 1].startswith('    \"msg\":') %}
+            {%- set _ = changed.list.append({'out': lines[loop.index0 + 1], 'idx': loop.index}) %}
+        {%- endif -%}
+    {%- endif %}
+{%- endfor %}
+{%- for task in tasks.list | reverse %}
+    {%- for change in changed.list | reverse %}
+        {%- if change.idx - task.idx > 0 %}
+            {%- for update in updated_changed.list %}
+                {%- if update.idx == change.idx %}
+                    {%- set ns.existing = true %}
+                {%- endif %}
+            {%- endfor %}
+            {%- if ns.existing != true %}
+                {%- set _ = updated_changed.list.append({'out': change.out, 'idx': change.idx, 'task_idx': task.idx}) %}
+            {%- endif %}
+        {%- set ns.existing = false %}
+        {%- endif %}
+    {%- endfor %}
+{%- endfor %}
+{% for task in tasks.list %}
+{% set ns.has_change = false %}
+{% for change in updated_changed.list | reverse %}
+{% if change.task_idx == task.idx %}
+{% set ns.has_change = true %}
+{% endif %}
+{% endfor %}
+{% if ns.has_change %}
+
+{{ task.idx }} : {{ task.out }}
+{% for change in updated_changed.list | reverse %}
+{% if change.task_idx == task.idx %}
+{{ change.idx }} : {{ change.out }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+Playbook Output Total Lines {{ lines | length }}

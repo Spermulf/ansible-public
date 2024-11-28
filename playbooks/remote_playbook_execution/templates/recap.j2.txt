@@ -1,0 +1,12 @@
+{%- set ns = namespace(recap=[], idx=0) %}
+{%- for line in lines %}
+    {%- if line.startswith('PLAY RECAP') %}
+        {%- set ns.idx = loop.index0 %}
+    {%- endif %}
+{%- endfor %}
+{%- for line in lines[ns.idx:] %}
+    {%- set _ = ns.recap.append({'out': line}) %}
+{%- endfor %}
+{% for line in ns.recap %}
+{{ line.out }}
+{% endfor %}

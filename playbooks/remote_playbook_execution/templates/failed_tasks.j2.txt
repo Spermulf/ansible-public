@@ -1,0 +1,49 @@
+{%- set tasks = namespace(list=[]) %}
+{%- set failed = namespace(list=[]) %}
+{%- set updated_failed = namespace(list=[]) %}
+{%- set ns = namespace(existing=false, has_fail=false) %}
+{%- for line in lines %}
+    {%- if line.startswith('TASK') %}
+        {%- set _ = tasks.list.append({'out': line, 'idx': loop.index0}) %}
+    {%- endif %}
+    {%- if line.startswith('fatal:') %}
+        {%- set _ = failed.list.append({'out': line, 'idx': loop.index0}) %}
+        {%- if lines[loop.index0 + 1].startswith('    \"msg\":') %}
+            {%- set _ = failed.list.append({'out': lines[loop.index0 + 1], 'idx': loop.index}) %}
+        {%- endif -%}
+    {%- endif %}
+{%- endfor %}
+{%- for task in tasks.list | reverse %}
+    {%- for fail in failed.list | reverse %}
+        {%- if fail.idx - task.idx > 0 %}
+            {%- for update in updated_failed.list %}
+                {%- if update.idx == fail.idx %}
+                    {%- set ns.existing = true %}
+                {%- endif %}
+            {%- endfor %}
+            {%- if ns.existing != true %}
+                {%- set _ = updated_failed.list.append({'out': fail.out, 'idx': fail.idx, 'task_idx': task.idx}) %}
+            {%- endif %}
+        {%- set ns.existing = false %}
+        {%- endif %}
+    {%- endfor %}
+{%- endfor %}
+{% for task in tasks.list %}
+{% set ns.has_fail = false %}
+{% for fail in updated_failed.list | reverse %}
+{% if fail.task_idx == task.idx %}
+{% set ns.has_fail = true %}
+{% endif %}
+{% endfor %}
+{% if ns.has_fail %}
+
+{{ task.idx }} : {{ task.out }}
+{% for fail in updated_failed.list | reverse %}
+{% if fail.task_idx == task.idx %}
+{{ fail.idx }} : {{ fail.out }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+Playbook Output Total Lines {{ lines | length }}

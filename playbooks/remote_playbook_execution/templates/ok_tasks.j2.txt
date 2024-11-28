@@ -1,0 +1,49 @@
+{%- set tasks = namespace(list=[]) %}
+{%- set okay = namespace(list=[]) %}
+{%- set updated_okay = namespace(list=[]) %}
+{%- set ns = namespace(existing=false, has_ok=false) %}
+{%- for line in lines %}
+    {%- if line.startswith('TASK') %}
+        {%- set _ = tasks.list.append({'out': line, 'idx': loop.index0}) %}
+    {%- endif %}
+    {%- if line.startswith('ok:') %}
+        {%- set _ = okay.list.append({'out': line, 'idx': loop.index0}) %}
+        {%- if lines[loop.index0 + 1].startswith('    \"msg\":') %}
+            {%- set _ = okay.list.append({'out': lines[loop.index0 + 1], 'idx': loop.index}) %}
+        {%- endif -%}
+    {%- endif %}
+{%- endfor %}
+{%- for task in tasks.list | reverse %}
+    {%- for ok in okay.list | reverse %}
+        {%- if ok.idx - task.idx > 0 %}
+            {%- for update in updated_okay.list %}
+                {%- if update.idx == ok.idx %}
+                    {%- set ns.existing = true %}
+                {%- endif %}
+            {%- endfor %}
+            {%- if ns.existing != true %}
+                {%- set _ = updated_okay.list.append({'out': ok.out, 'idx': ok.idx, 'task_idx': task.idx}) %}
+            {%- endif %}
+        {%- set ns.existing = false %}
+        {%- endif %}
+    {%- endfor %}
+{%- endfor %}
+{% for task in tasks.list %}
+{% set ns.has_ok = false %}
+{% for ok in updated_okay.list | reverse %}
+{% if ok.task_idx == task.idx %}
+{% set ns.has_ok = true %}
+{% endif %}
+{% endfor %}
+{% if ns.has_ok %}
+{{ task.idx }} : {{ task.out }}
+{% for ok in updated_okay.list | reverse %}
+{% if ok.task_idx == task.idx %}
+
+{{ ok.idx }} : {{ ok.out }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+Playbook Output Total Lines {{ lines | length }}
