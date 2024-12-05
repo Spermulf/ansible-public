@@ -1,0 +1,1 @@
+for line in lines, line starts with msg, lines[idx + 1].idx - lines[idx].idx = x, for i in range(lines[idx].idx, lines[idx].idx + x), print all lines in range, on to next line in lines.
